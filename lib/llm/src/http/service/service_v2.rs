@@ -534,19 +534,19 @@ impl HttpServiceConfigBuilder {
                             tracing::error!(
                                 status = %status.as_u16(),
                                 latency_ms = %latency_ms,
-                                "request completed with server error"
+                                "http response sent"
                             );
                         } else if status.is_client_error() {
                             tracing::warn!(
                                 status = %status.as_u16(),
                                 latency_ms = %latency_ms,
-                                "request completed with client request error"
+                                "http response sent"
                             );
                         } else {
                             tracing::debug!(
                                 status = %status.as_u16(),
                                 latency_ms = %latency_ms,
-                                "request completed"
+                                "http response sent"
                             );
                         }
                     },

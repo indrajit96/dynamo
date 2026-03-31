@@ -437,10 +437,12 @@ async fn completions_single(
     let model = request.inner.model.clone();
 
     // Create inflight_guard early to ensure all errors are counted
-    let mut inflight_guard =
-        state
-            .metrics_clone()
-            .create_inflight_guard(&model, Endpoint::Completions, streaming);
+    let mut inflight_guard = state.metrics_clone().create_inflight_guard(
+        &model,
+        Endpoint::Completions,
+        streaming,
+        request_id.clone(),
+    );
 
     // Create http_queue_guard early - tracks time waiting to be processed
     let http_queue_guard = state.metrics_clone().create_http_queue_guard(&model);
@@ -571,10 +573,12 @@ async fn completions_batch(
     let model = request.inner.model.clone();
 
     // Create inflight_guard early to ensure all errors are counted
-    let mut inflight_guard =
-        state
-            .metrics_clone()
-            .create_inflight_guard(&model, Endpoint::Completions, streaming);
+    let mut inflight_guard = state.metrics_clone().create_inflight_guard(
+        &model,
+        Endpoint::Completions,
+        streaming,
+        request_id.clone(),
+    );
 
     // Create http_queue_guard early - tracks time waiting to be processed
     let http_queue_guard = state.metrics_clone().create_http_queue_guard(&model);
@@ -752,10 +756,12 @@ async fn embeddings(
     let model = &request.inner.model;
 
     // Create inflight_guard early to ensure all errors are counted
-    let mut inflight =
-        state
-            .metrics_clone()
-            .create_inflight_guard(model, Endpoint::Embeddings, streaming);
+    let mut inflight = state.metrics_clone().create_inflight_guard(
+        model,
+        Endpoint::Embeddings,
+        streaming,
+        request_id.clone(),
+    );
 
     // Create http_queue_guard early - tracks time waiting to be processed
     let http_queue_guard = state.metrics_clone().create_http_queue_guard(model);
@@ -1128,10 +1134,12 @@ async fn chat_completions(
     tracing::trace!("Received chat completions request: {:?}", request.content());
 
     // Create inflight_guard early to ensure all errors (including validation) are counted
-    let mut inflight_guard =
-        state
-            .metrics_clone()
-            .create_inflight_guard(&model, Endpoint::ChatCompletions, streaming);
+    let mut inflight_guard = state.metrics_clone().create_inflight_guard(
+        &model,
+        Endpoint::ChatCompletions,
+        streaming,
+        request_id.clone(),
+    );
 
     // Handle unsupported fields - if Some(resp) is returned by
     // validate_chat_completion_unsupported_fields,
@@ -1508,10 +1516,12 @@ async fn responses(
 
     // Create http_queue_guard early - tracks time waiting to be processed
     let http_queue_guard = state.metrics_clone().create_http_queue_guard(&model);
-    let mut inflight_guard =
-        state
-            .metrics_clone()
-            .create_inflight_guard(&model, Endpoint::Responses, streaming);
+    let mut inflight_guard = state.metrics_clone().create_inflight_guard(
+        &model,
+        Endpoint::Responses,
+        streaming,
+        request.id().to_string(),
+    );
 
     // Handle unsupported fields - if Some(resp) is returned by validate_unsupported_fields,
     // then a field was used that is unsupported. We will log an error message
@@ -1955,10 +1965,12 @@ async fn images(
         .map_err(|_| ErrorMessage::model_not_found())?;
 
     // this will increment the inflight gauge for the model
-    let mut inflight =
-        state
-            .metrics_clone()
-            .create_inflight_guard(&model, Endpoint::Images, streaming);
+    let mut inflight = state.metrics_clone().create_inflight_guard(
+        &model,
+        Endpoint::Images,
+        streaming,
+        request_id.clone(),
+    );
 
     let mut response_collector = state.metrics_clone().create_response_collector(&model);
 
@@ -2044,10 +2056,12 @@ async fn videos(
         .map_err(|_| ErrorMessage::model_not_found())?;
 
     // this will increment the inflight gauge for the model
-    let mut inflight =
-        state
-            .metrics_clone()
-            .create_inflight_guard(&model, Endpoint::Videos, streaming);
+    let mut inflight = state.metrics_clone().create_inflight_guard(
+        &model,
+        Endpoint::Videos,
+        streaming,
+        request_id.clone(),
+    );
 
     let mut response_collector = state.metrics_clone().create_response_collector(&model);
 
@@ -2111,9 +2125,12 @@ async fn video_stream(
         .get_videos_engine(&model)
         .map_err(|_| ErrorMessage::model_not_found())?;
 
-    let mut inflight = state
-        .metrics_clone()
-        .create_inflight_guard(&model, Endpoint::Videos, true);
+    let mut inflight = state.metrics_clone().create_inflight_guard(
+        &model,
+        Endpoint::Videos,
+        true,
+        request.id().to_string(),
+    );
 
     let mut response_collector = state.metrics_clone().create_response_collector(&model);
 
