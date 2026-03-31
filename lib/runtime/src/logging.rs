@@ -297,7 +297,14 @@ pub fn make_request_span<B>(req: &Request<B>) -> Span {
 
     let otel_context = extract_otel_context_from_http_headers(req.headers());
 
-    let span = tracing::info_span!(
+    // Generate a request ID if the client didn't provide one so that workers
+    // (which read x_dynamo_request_id from the span/trace context) always
+    // have a consistent ID to correlate with.
+    let x_dynamo_request_id = trace_parent
+        .x_dynamo_request_id
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+    let span = tracing::error_span!(
         "http-request",
         method = %method,
         uri = %uri,
@@ -305,7 +312,11 @@ pub fn make_request_span<B>(req: &Request<B>) -> Span {
         trace_id = trace_parent.trace_id,
         parent_id = trace_parent.parent_id,
         x_request_id = trace_parent.x_request_id,
-        x_dynamo_request_id = trace_parent.x_dynamo_request_id,
+        x_dynamo_request_id = %x_dynamo_request_id,
+        model = tracing::field::Empty,
+        error_type = tracing::field::Empty,
+        input_tokens = tracing::field::Empty,
+        output_tokens = tracing::field::Empty,
     );
 
     if let Some(context) = otel_context {
@@ -363,7 +374,7 @@ pub fn make_handle_payload_span(
     let trace_parent = TraceParent::from_headers(headers);
 
     if let (Some(trace_id), Some(parent_id)) = (trace_id.as_ref(), parent_span_id.as_ref()) {
-        let span = tracing::info_span!(
+        let span = tracing::error_span!(
             "handle_payload",
             trace_id = trace_id.as_str(),
             parent_id = parent_id.as_str(),
@@ -381,7 +392,7 @@ pub fn make_handle_payload_span(
         }
         span
     } else {
-        tracing::info_span!(
+        tracing::error_span!(
             "handle_payload",
             x_request_id = trace_parent.x_request_id,
             x_dynamo_request_id = trace_parent.x_dynamo_request_id,
@@ -408,7 +419,7 @@ pub fn make_handle_payload_span_from_tcp_headers(
     let tracestate = headers.get("tracestate").cloned();
 
     if let (Some(trace_id), Some(parent_id)) = (trace_id.as_ref(), parent_span_id.as_ref()) {
-        let span = tracing::info_span!(
+        let span = tracing::error_span!(
             "handle_payload",
             trace_id = trace_id.as_str(),
             parent_id = parent_id.as_str(),
@@ -426,7 +437,7 @@ pub fn make_handle_payload_span_from_tcp_headers(
         }
         span
     } else {
-        tracing::info_span!(
+        tracing::error_span!(
             "handle_payload",
             x_request_id = x_request_id,
             x_dynamo_request_id = x_dynamo_request_id,

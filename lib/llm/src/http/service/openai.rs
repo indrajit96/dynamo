@@ -289,37 +289,32 @@ pub async fn smart_json_error_middleware(request: Request<Body>, next: Next) -> 
     }
 }
 
-/// Get the request ID from a primary source, or next from the headers, or lastly create a new one if not present
-// TODO: Similar function exists in lib/llm/src/grpc/service/openai.rs but with different signature and simpler logic
-pub(super) fn get_or_create_request_id(primary: Option<&str>, headers: &HeaderMap) -> String {
-    // Try to get request id from trace context
+/// Get the request ID from the trace context, rejecting invalid `x-dynamo-request-id` headers.
+pub(super) fn get_or_create_request_id(headers: &HeaderMap) -> Result<String, ErrorResponse> {
+    if let Some(raw) = headers.get(DYNAMO_REQUEST_ID_HEADER)
+        && let Ok(s) = raw.to_str()
+        && uuid::Uuid::parse_str(s).is_err()
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorMessage {
+                message: format!(
+                    "Validation: {} header must be a valid UUID, got: {}",
+                    DYNAMO_REQUEST_ID_HEADER, s
+                ),
+                error_type: map_error_code_to_error_type(StatusCode::BAD_REQUEST),
+                code: StatusCode::BAD_REQUEST.as_u16(),
+            }),
+        ));
+    }
+
     if let Some(trace_context) = get_distributed_tracing_context()
         && let Some(x_dynamo_request_id) = trace_context.x_dynamo_request_id
     {
-        return x_dynamo_request_id;
+        return Ok(x_dynamo_request_id);
     }
 
-    // Try to get the request ID from the primary source
-    if let Some(primary) = primary
-        && let Ok(uuid) = uuid::Uuid::parse_str(primary)
-    {
-        return uuid.to_string();
-    }
-
-    // Try to get the request ID header as a string slice
-    let request_id_opt = headers
-        .get(DYNAMO_REQUEST_ID_HEADER)
-        .and_then(|h| h.to_str().ok());
-
-    // Try to parse the request ID as a UUID, or generate a new one if missing/invalid
-    let uuid = match request_id_opt {
-        Some(request_id) => {
-            uuid::Uuid::parse_str(request_id).unwrap_or_else(|_| uuid::Uuid::new_v4())
-        }
-        None => uuid::Uuid::new_v4(),
-    };
-
-    uuid.to_string()
+    Ok(uuid::Uuid::new_v4().to_string())
 }
 
 /// OpenAI Completions Request Handler
@@ -341,7 +336,7 @@ async fn handler_completions(
     request.nvext = apply_header_routing_overrides(request.nvext.take(), &headers);
 
     // create the context for the request
-    let request_id = get_or_create_request_id(request.inner.user.as_deref(), &headers);
+    let request_id = get_or_create_request_id(&headers)?;
     let streaming = request.inner.stream.unwrap_or(false);
     let cancellation_labels = CancellationLabels {
         model: request.inner.model.clone(),
@@ -721,7 +716,7 @@ async fn embeddings(
     // return a 503 if the service is not ready
     check_ready(&state)?;
 
-    let request_id = get_or_create_request_id(request.inner.user.as_deref(), &headers);
+    let request_id = get_or_create_request_id(&headers)?;
     let request = Context::with_id(request, request_id);
     let request_id = request.id().to_string();
 
@@ -799,7 +794,7 @@ async fn handler_chat_completions(
     request.nvext = apply_header_routing_overrides(request.nvext.take(), &headers);
 
     // create the context for the request
-    let request_id = get_or_create_request_id(request.inner.user.as_deref(), &headers);
+    let request_id = get_or_create_request_id(&headers)?;
     let streaming = request.inner.stream.unwrap_or(false);
     let cancellation_labels = CancellationLabels {
         model: request.inner.model.clone(),
@@ -1408,7 +1403,7 @@ async fn handler_responses(
     request.nvext = apply_header_routing_overrides(request.nvext.take(), &headers);
 
     // create the context for the request
-    let request_id = get_or_create_request_id(None, &headers);
+    let request_id = get_or_create_request_id(&headers)?;
     let streaming = request.inner.stream.unwrap_or(false);
     let cancellation_labels = CancellationLabels {
         model: request.inner.model.clone().unwrap_or_default(),
@@ -1892,7 +1887,7 @@ async fn images(
     // return a 503 if the service is not ready
     check_ready(&state)?;
 
-    let request_id = get_or_create_request_id(request.inner.user.as_deref(), &headers);
+    let request_id = get_or_create_request_id(&headers)?;
     let request = Context::with_id(request, request_id);
     let request_id = request.id().to_string();
 
@@ -1985,7 +1980,7 @@ async fn videos(
     // return a 503 if the service is not ready
     check_ready(&state)?;
 
-    let request_id = get_or_create_request_id(request.user.as_deref(), &headers);
+    let request_id = get_or_create_request_id(&headers)?;
     let request = Context::with_id(request, request_id);
     let request_id = request.id().to_string();
 
@@ -2056,7 +2051,7 @@ async fn video_stream(
 ) -> Result<Response, ErrorResponse> {
     check_ready(&state)?;
 
-    let request_id = get_or_create_request_id(request.user.as_deref(), &headers);
+    let request_id = get_or_create_request_id(&headers)?;
     let request = Context::with_id(request, request_id);
     let model = request.model.clone();
 
