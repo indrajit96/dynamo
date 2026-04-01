@@ -163,6 +163,7 @@ class CreateImageRequest(BaseModel):
     quality: Optional[str] = "standard"  # standard, hd
     response_format: Optional[str] = "url"  # url or b64_json
     user: Optional[str] = None
+    input_reference: Optional[str] = None  # For I2I (image-to-image) - image path/url
 
     # NVIDIA extensions nested under nvext
     nvext: Optional[NvExt] = None

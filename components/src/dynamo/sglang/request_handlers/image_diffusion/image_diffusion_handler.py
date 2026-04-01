@@ -107,6 +107,7 @@ class ImageDiffusionWorkerHandler(BaseGenerativeHandler):
                 num_inference_steps=nvext.num_inference_steps,
                 guidance_scale=nvext.guidance_scale,
                 seed=nvext.seed,
+                input_reference=req.input_reference,
             )
 
             context_id = context.id()
@@ -144,6 +145,7 @@ class ImageDiffusionWorkerHandler(BaseGenerativeHandler):
         guidance_scale: float,
         seed: Optional[int],
         negative_prompt: Optional[str] = None,
+        input_reference: Optional[str] = None,
     ) -> list[bytes]:
         """Generate images using SGLang DiffGenerator"""
         args = {
@@ -156,18 +158,26 @@ class ImageDiffusionWorkerHandler(BaseGenerativeHandler):
             "guidance_scale": guidance_scale,
             "seed": seed if seed else random.randint(0, 1000000),
         }
+
+        # Add image_path for I2I if provided
+        if input_reference:
+            args["image_path"] = input_reference
+
         result = await asyncio.to_thread(
             self.generator.generate,
             sampling_params_kwargs=args,
         )
 
-        # DiffGenerator.generate() returns GenerationResult | list[GenerationResult] | None
+        # DiffGenerator.generate() returns dict | list[dict] | None
+        # (when return_frames=False, the default).
         if result is None:
             raise RuntimeError("No result from generator")
         if isinstance(result, list):
             result = result[0]
 
-        images = result.frames if result.frames else []
+        # Support both dict results and object-style results
+        frames = result["frames"] if isinstance(result, dict) else result.frames
+        images = frames if frames else []
 
         # Convert images to bytes (handle PIL Images, numpy arrays, or bytes)
         image_bytes_list = []

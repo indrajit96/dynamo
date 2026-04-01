@@ -16,6 +16,10 @@ pub struct NvCreateImageRequest {
     #[serde(flatten)]
     pub inner: dynamo_async_openai::types::CreateImageRequest,
 
+    /// Optional image reference that guides generation (for I2I)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_reference: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nvext: Option<NvExt>,
 }
