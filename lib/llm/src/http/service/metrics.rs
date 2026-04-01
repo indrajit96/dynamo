@@ -369,6 +369,7 @@ pub struct ResponseMetricCollector {
     // be computed.
     last_response_time: Option<Duration>,
     osl: usize,
+    isl: usize,
     // we track if cached_tokens has been observed to ensure we only increment once per request
     cached_tokens_observed: bool,
     // we track if tokenize latency has been observed to ensure we only increment once per request
@@ -1163,6 +1164,7 @@ impl ResponseMetricCollector {
             last_response_time: None,
             start_time: Instant::now(),
             osl: 0,
+            isl: 0,
             cached_tokens_observed: false,
             tokenize_latency_observed: false,
             detokenize_latency_total: Duration::ZERO,
@@ -1263,6 +1265,9 @@ impl ResponseMetricCollector {
             return;
         }
 
+        // Store ISL for span recording on drop
+        self.isl = isl;
+
         // Increment the real-time output tokens counter
         self.metrics
             .output_tokens_counter
@@ -1361,6 +1366,16 @@ impl Drop for ResponseMetricCollector {
             .output_sequence_length
             .with_label_values(&[&self.model])
             .observe(self.osl as f64);
+
+        // Record token counts on the enclosing span for error tracing.
+        // InflightGuard::Drop and on_response logs will inherit these.
+        let span = tracing::Span::current();
+        if self.isl > 0 {
+            span.record("input_tokens", self.isl as u32);
+        }
+        if self.osl > 0 {
+            span.record("output_tokens", self.osl as u32);
+        }
     }
 }
 
