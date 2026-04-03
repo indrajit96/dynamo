@@ -22,6 +22,7 @@ from dynamo.vllm.args import (
     ensure_side_channel_host,
     get_host_ip,
     parse_args,
+    update_engine_config_with_dynamo,
 )
 from dynamo.vllm.constants import DisaggregationMode
 from dynamo.vllm.tests.conftest import make_cli_args_fixture
@@ -37,6 +38,8 @@ JINJA_TEMPLATE_PATH = str(
 pytestmark = [
     pytest.mark.unit,
     pytest.mark.vllm,
+    # gpu_1 not gpu_0: vLLM DeviceConfig(device='auto') fails on CPU-only arm64
+    # runners with "Failed to infer device type" even for mock tests.
     pytest.mark.gpu_1,
     pytest.mark.pre_merge,
 ]
@@ -559,6 +562,77 @@ class TestEnsureSideChannelHost:
         ):
             with pytest.raises(RuntimeError, match="Unable to determine"):
                 ensure_side_channel_host()
+
+
+# --- runner override tests (issue #7670) ---
+
+
+def _make_dynamo_config_stub():
+    """Build a minimal fake dynamo config for update_engine_config_with_dynamo tests."""
+    return SimpleNamespace(
+        benchmark_mode=None,
+        multimodal_worker=False,
+        multimodal_decode_worker=False,
+        use_kv_events=False,
+        disaggregation_mode=DisaggregationMode.AGGREGATED,
+    )
+
+
+def _make_engine_config_stub(**overrides):
+    """Build a minimal fake engine config with sensible defaults.
+
+    All attributes that update_engine_config_with_dynamo touches are present
+    so the function can run without hitting missing-attribute errors.
+    """
+    defaults = dict(
+        runner="auto",
+        skip_tokenizer_init=True,
+        enable_log_requests=True,
+        disable_log_stats=True,
+        enable_prefix_caching=True,
+        block_size=16,
+        kv_transfer_config=None,
+        kv_events_config=None,
+    )
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+def test_runner_defaults_to_generate_when_auto(monkeypatch):
+    """When no --runner is provided (vLLM default 'auto'), Dynamo should
+    override it to 'generate'."""
+    monkeypatch.delenv("DYN_FORWARDPASS_METRIC_PORT", raising=False)
+    dynamo_cfg = _make_dynamo_config_stub()
+    engine_cfg = _make_engine_config_stub(runner="auto")
+
+    update_engine_config_with_dynamo(dynamo_cfg, engine_cfg)
+
+    assert engine_cfg.runner == "generate"
+
+
+def test_runner_preserved_when_explicitly_set(monkeypatch):
+    """When a user passes --runner pooling, Dynamo must NOT override it.
+    Regression test for https://github.com/ai-dynamo/dynamo/issues/7670."""
+    monkeypatch.delenv("DYN_FORWARDPASS_METRIC_PORT", raising=False)
+    dynamo_cfg = _make_dynamo_config_stub()
+    engine_cfg = _make_engine_config_stub(runner="pooling")
+
+    update_engine_config_with_dynamo(dynamo_cfg, engine_cfg)
+
+    assert engine_cfg.runner == "pooling"
+
+
+def test_runner_defaults_to_generate_when_attr_missing(monkeypatch):
+    """When the engine config has no 'runner' attribute at all (older vLLM),
+    Dynamo should still set it to 'generate'."""
+    monkeypatch.delenv("DYN_FORWARDPASS_METRIC_PORT", raising=False)
+    dynamo_cfg = _make_dynamo_config_stub()
+    engine_cfg = _make_engine_config_stub()
+    del engine_cfg.runner  # simulate older vLLM without runner attr
+
+    update_engine_config_with_dynamo(dynamo_cfg, engine_cfg)
+
+    assert engine_cfg.runner == "generate"
 
 
 # --- vllm_omni optional dependency tests ---
