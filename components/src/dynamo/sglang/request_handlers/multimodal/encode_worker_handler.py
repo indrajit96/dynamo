@@ -51,6 +51,34 @@ except ImportError as e:
 IMAGE_URL_KEY = "image_url"
 
 
+def _expand_image_tokens(
+    token_ids: list[int],
+    image_token_id: int,
+    token_counts: list[int],
+) -> list[int]:
+    """Expand single image-placeholder tokens into the correct repeat counts.
+
+    Builds the result in a single pass instead of repeatedly slicing and
+    concatenating the list (which is O(N * L) for N images in a sequence
+    of length L).
+    """
+    count_iter = iter(token_counts)
+    result: list[int] = []
+    for tid in token_ids:
+        if tid == image_token_id:
+            count = next(count_iter, None)
+            if count is None:
+                result.append(tid)
+            else:
+                result.extend([image_token_id] * count)
+        else:
+            result.append(tid)
+    remaining = list(count_iter)
+    if remaining:
+        raise ValueError("Not enough image tokens found for provided images")
+    return result
+
+
 class MultimodalEncodeWorkerHandler(BaseWorkerHandler[SglangMultimodalRequest, str]):
     """
     Handler for multimodal encode worker component that processes images/videos
@@ -383,23 +411,11 @@ class MultimodalEncodeWorkerHandler(BaseWorkerHandler[SglangMultimodalRequest, s
             request.embeddings_shape = tuple(precomputed_embeddings.shape)  # type: ignore[assignment]
             request.transfer_payload = None
 
-            search_start = 0
-            for num_image_tokens in token_counts:
-                try:
-                    image_token_id_index = request.request.token_ids.index(
-                        self.image_token_id, search_start
-                    )
-                except ValueError as e:
-                    raise ValueError(
-                        "Not enough image tokens found for provided images"
-                    ) from e
-
-                request.request.token_ids = (
-                    request.request.token_ids[:image_token_id_index]
-                    + [self.image_token_id] * num_image_tokens
-                    + request.request.token_ids[image_token_id_index + 1 :]
-                )
-                search_start = image_token_id_index + num_image_tokens
+            request.request.token_ids = _expand_image_tokens(
+                request.request.token_ids,
+                self.image_token_id,
+                token_counts,
+            )
 
             with _nvtx.annotate("mm:enc:embedding_transfer", color="purple"):
                 (

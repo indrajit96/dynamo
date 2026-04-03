@@ -198,6 +198,9 @@ def _create_request_with_urls(
     """
     Create a modified request containing only specified image URLs.
 
+    Builds a new dict with only the needed keys instead of deep-copying the
+    entire request, which is expensive for large payloads.
+
     Args:
         original_request: Original request dict
         image_urls: URLs to include in the modified request
@@ -205,15 +208,13 @@ def _create_request_with_urls(
     Returns:
         Modified request dict with filtered image URLs
     """
-    # Deep copy to avoid modifying original
-    import copy
+    url_set = set(image_urls)
 
-    modified_request = copy.deepcopy(original_request)
-
-    # Extract messages
-    messages = modified_request.get("extra_args", {}).get(
-        "messages", modified_request.get("messages", [])
-    )
+    # Extract messages from the original (read-only)
+    if "extra_args" in original_request:
+        messages = original_request["extra_args"].get("messages", [])
+    else:
+        messages = original_request.get("messages", [])
 
     # Filter messages to only include specified URLs
     filtered_messages = []
@@ -223,12 +224,10 @@ def _create_request_with_urls(
         for content in message.get("content", []):
             if isinstance(content, dict):
                 if content.get("type") == "image_url":
-                    # Only include if URL is in our list
                     url = content.get("image_url", {}).get("url")
-                    if url in image_urls:
+                    if url in url_set:
                         new_message["content"].append(content)
                 elif content.get("type") == "text":
-                    # Keep text content
                     new_message["content"].append(content)
             elif isinstance(content, str):
                 new_message["content"].append(content)
@@ -236,10 +235,21 @@ def _create_request_with_urls(
         if new_message["content"]:
             filtered_messages.append(new_message)
 
-    # Update the request with filtered messages
-    if "extra_args" in modified_request:
-        modified_request["extra_args"]["messages"] = filtered_messages
-    else:
+    # Build a shallow copy with only the keys we need, avoiding deepcopy
+    modified_request: Dict[str, Any] = {}
+    for key, value in original_request.items():
+        if key == "messages":
+            modified_request[key] = filtered_messages
+        elif key == "extra_args":
+            modified_request[key] = {
+                **original_request["extra_args"],
+                "messages": filtered_messages,
+            }
+        else:
+            modified_request[key] = value
+
+    # Ensure messages are set even if neither key existed
+    if "extra_args" not in original_request and "messages" not in original_request:
         modified_request["messages"] = filtered_messages
 
     return modified_request
